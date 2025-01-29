@@ -4,6 +4,7 @@ import argparse
 import asyncio
 from pprint import pprint
 from ftplib import FTP
+from platformdirs import user_downloads_dir
 
 import httpx
 
@@ -12,21 +13,28 @@ import httpx
 
 class AFDB:
     """
-    TODO
+    Toolset for working with the alphafold database.
     """
 
     def __init__(
         self,
         ftp_server: str = "ftp.ebi.ac.uk",
+        download_directory: str = user_downloads_dir(),
         version: str = "latest",
     ) -> None:
         """TODO"""
         self.ftp_server = ftp_server
+        self.download_directory = download_directory
         self.version = version
         self.api_client = httpx.AsyncClient()
 
     async def get_readme(self) -> str:
-        """TODO"""
+        """
+        Read the README.txt file.
+
+        :return Parsed README.txt file, or in a a case of an exception, return an error message
+        :rtype str
+        """
         try:
             request_readme = await self.api_client.get(
                 f"https://{self.ftp_server}/pub/databases/alphafold/README.txt"
@@ -40,7 +48,12 @@ class AFDB:
         return request_readme.text
 
     async def get_metadata_json(self) -> dict | str:
-        """TODO"""
+        """
+        Read the download_metadata.json file.
+
+        :return Parsed download_metadata.json file, or in case of an exception, return an error message
+        :rtype dict | str
+        """
         try:
             request_metadata = await self.api_client.get(
                 f"https://{self.ftp_server}/pub/databases/alphafold/download_metadata.json"
@@ -54,7 +67,12 @@ class AFDB:
         return request_metadata.json()
 
     def list_accessions(self) -> list[str]:
-        """TODO"""
+        """
+        List all accession in the alphafold latets directory.
+
+        :return List of file names
+        :rtype list[str]
+        """
         directories = []
         with FTP("ftp.ebi.ac.uk") as ftp:
             ftp.login()
@@ -62,9 +80,32 @@ class AFDB:
             directories = ftp.nlst()
         return directories
 
+    def download_accession_by_reference_proteom(self, reference_proteom) -> str:
+        """
+        Download a tar archive from the ftp server based on the uniprot ID provided.
+
+        :param reference_proteom: Alphafold identifier #TODO better description
+        :type reference_proteom: str
+        :return: A message where and what file has been downloaded.
+        :rtype: str
+        """
+        download_file = ""
+        with FTP("ftp.ebi.ac.uk") as ftp:
+            ftp.login()
+            ftp.cwd(f"/pub/databases/alphafold/{self.version}/")
+            for accession in ftp.nlst():
+                if accession.split("_")[0] == reference_proteom:
+                    download_file = accession
+                    break
+            with open(
+                f"{self.download_directory}/{download_file}", "wb"
+            ) as file_handler:
+                ftp.retrbinary(f"RETR {download_file}", file_handler.write)
+        return f"Downloaded {download_file} into {self.download_directory}"
+
 
 async def main():
-    """TODO"""
+    """Main handler for running the helper"""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-m",
@@ -84,6 +125,11 @@ async def main():
         action="store_true",
         help="List accessions from the ftp server",
     )
+    parser.add_argument(
+        "-da",
+        "--download_accession",
+        help="Download an accession by providing the reference proteom id",
+    )
     # TODO add a way to setup version
     afdb = AFDB()
     args = parser.parse_args()
@@ -95,6 +141,8 @@ async def main():
         for accession in afdb.list_accessions():
             if accession.startswith("UP"):
                 print(accession)
+    elif args.download_accession:
+        print(afdb.download_accession_by_reference_proteom(args.download_accession))
 
 
 if __name__ == "__main__":
